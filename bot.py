@@ -9,7 +9,14 @@ se désabonner de la newsletter (état courant reflété dans le libellé).
 import logging
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
-from telegram.ext import Application, CallbackQueryHandler, CommandHandler, ContextTypes
+from telegram.ext import (
+    Application,
+    CallbackQueryHandler,
+    CommandHandler,
+    ContextTypes,
+    MessageHandler,
+    filters,
+)
 
 import config
 import i18n
@@ -70,8 +77,15 @@ async def on_ui_language_chosen(update: Update, context: ContextTypes.DEFAULT_TY
     state_db.set_user_language(user_id, ui_language)
     state_db.set_subscribed(user_id, True)
 
+    # Confirmation d'abonnement (avec le rappel de /quit pour se désabonner),
+    # affichée avec le menu principal.
+    menu_text = (
+        i18n.t("choose_content_language", ui_language)
+        + "\n\n"
+        + i18n.t("start_subscribed_notice", ui_language)
+    )
     await query.edit_message_text(
-        i18n.t("choose_content_language", ui_language),
+        menu_text,
         reply_markup=_main_menu_keyboard(user_id, ui_language),
     )
 
@@ -149,6 +163,47 @@ async def on_video_chosen(update: Update, context: ContextTypes.DEFAULT_TYPE):
         message_id=video.message_id,
     )
 
+    # Sans ce message, le seul bouton "Menu principal" reste accroché à la
+    # liste des titres, qui remonte dans l'historique à chaque vidéo envoyée.
+    await context.bot.send_message(
+        chat_id=user_id,
+        text=i18n.t("video_sent", ui_language),
+        reply_markup=InlineKeyboardMarkup(
+            [[InlineKeyboardButton(i18n.t("back_to_menu", ui_language), callback_data="back_to_menu")]]
+        ),
+    )
+
+
+async def quit_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Commande /quit : désabonnement direct de la newsletter."""
+    user_id = update.effective_user.id
+    ui_language = state_db.get_user_language(user_id) or config.DEFAULT_UI_LANGUAGE
+    state_db.set_subscribed(user_id, False)
+    await update.message.reply_text(i18n.t("newsletter_unsubscribed", ui_language))
+
+
+async def on_any_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """N'importe quel message (texte ou autre) hors commande réaffiche le
+    menu principal. Si l'utilisateur n'a encore jamais fait /start, on lui
+    montre d'abord le choix de la langue de l'interface."""
+    if update.message is None:
+        return
+
+    user_id = update.effective_user.id
+    ui_language = state_db.get_user_language(user_id)
+
+    if ui_language is None:
+        await update.message.reply_text(
+            i18n.t("choose_ui_language", config.DEFAULT_UI_LANGUAGE),
+            reply_markup=_language_keyboard("ui_lang"),
+        )
+        return
+
+    await update.message.reply_text(
+        i18n.t("choose_content_language", ui_language),
+        reply_markup=_main_menu_keyboard(user_id, ui_language),
+    )
+
 
 async def on_back_to_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -163,9 +218,14 @@ async def on_back_to_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 def register_handlers(application: Application):
     application.add_handler(CommandHandler("start", start))
+    application.add_handler(CommandHandler("quit", quit_cmd))
     application.add_handler(CallbackQueryHandler(on_ui_language_chosen, pattern=r"^ui_lang:"))
     application.add_handler(CallbackQueryHandler(on_change_ui_language, pattern=r"^change_ui_lang$"))
     application.add_handler(CallbackQueryHandler(on_content_language_chosen, pattern=r"^content_lang:"))
     application.add_handler(CallbackQueryHandler(on_video_chosen, pattern=r"^video:"))
     application.add_handler(CallbackQueryHandler(on_back_to_menu, pattern=r"^back_to_menu$"))
     application.add_handler(CallbackQueryHandler(on_newsletter_toggle, pattern=r"^newsletter:"))
+    # Doit être ajouté après les CommandHandler ci-dessus : ~filters.COMMAND
+    # exclut déjà /start et /quit, donc l'ordre n'a pas d'incidence, mais on
+    # le garde en dernier par convention (handler "attrape-tout").
+    application.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND, on_any_message))
