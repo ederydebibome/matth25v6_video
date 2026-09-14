@@ -23,6 +23,108 @@ CROSS_LINK_INTRO = {
     "ja": "この動画は以下の言語でもご覧いただけます：",
 }
 
+# Note affichée dans la légende de chaque canal doublé (jamais sur "original",
+# qui EST la version modifiable), expliquant l'existence de la version
+# modifiable/sans voix, pour qui voudrait la traduire dans une autre langue.
+# Traduction idiomatique par langue plutôt que littérale (ex. "NB" devient
+# "Hinweis" en allemand, "Примечание" en russe, etc. — jamais de tiret cadratin).
+EDITABLE_VERSION_NOTE = {
+    "fr": "NB : cette vidéo est aussi disponible dans une version modifiable, pour celles et ceux qui souhaitent la traduire dans une autre langue.",
+    "en": "Note: this video is also available in an editable version, for anyone who would like to translate it into another language.",
+    "it": "N.B.: questo video è disponibile anche in una versione modificabile, per chi desidera tradurlo in un'altra lingua.",
+    "pt": "Nota: este vídeo também está disponível numa versão editável, para quem quiser traduzi-lo para outro idioma.",
+    "es": "Nota: este vídeo también está disponible en una versión editable, para quienes quieran traducirlo a otro idioma.",
+    "de": "Hinweis: Dieses Video ist auch in einer bearbeitbaren Version verfügbar, für alle, die es in eine andere Sprache übersetzen möchten.",
+    "ru": "Примечание: это видео также доступно в редактируемой версии для тех, кто хочет перевести его на другой язык.",
+    "zh": "备注：本视频也提供可编辑版本，方便有需要翻译成其他语言的用户使用。",
+    "hi": "टिप्पणी: यह वीडियो एक संपादन योग्य संस्करण में भी उपलब्ध है, उन लोगों के लिए जो इसे किसी अन्य भाषा में अनुवाद करना चाहते हैं।",
+    "ar": "ملاحظة: يتوفر هذا الفيديو أيضًا بنسخة قابلة للتعديل، لمن يريد ترجمته إلى لغة أخرى.",
+    "ja": "備考:この動画は編集可能なバージョンでもご覧いただけます。他の言語に翻訳したい方はご利用ください。",
+}
+
+# Libellé du lien hypertexte natif pointant vers le canal "original".
+EDITABLE_VERSION_LABEL = {
+    "fr": "Version modifiable",
+    "en": "Editable version",
+    "it": "Versione modificabile",
+    "pt": "Versão editável",
+    "es": "Versión editable",
+    "de": "Bearbeitbare Version",
+    "ru": "Редактируемая версия",
+    "zh": "可编辑版本",
+    "hi": "संपादन योग्य संस्करण",
+    "ar": "نسخة قابلة للتعديل",
+    "ja": "編集可能なバージョン",
+}
+
+# Nom de chaque langue (clé de canal), traduit dans CHAQUE langue d'interface
+# possible. Contrairement à config.DISPLAY_NAMES (toujours en forme native,
+# ex. "Deutsch"), ceci sert à afficher "Allemand"/"German"/"Alemão"... selon
+# la langue d'interface du destinataire (utilisé dans la newsletter).
+LANGUAGE_NAMES = {
+    "fr": {
+        "original": "Version originale", "fr": "Français", "en": "Anglais", "it": "Italien",
+        "pt": "Portugais", "es": "Espagnol", "de": "Allemand", "ru": "Russe",
+        "zh": "Chinois", "hi": "Hindi", "ar": "Arabe", "ja": "Japonais",
+    },
+    "en": {
+        "original": "Original version", "fr": "French", "en": "English", "it": "Italian",
+        "pt": "Portuguese", "es": "Spanish", "de": "German", "ru": "Russian",
+        "zh": "Chinese", "hi": "Hindi", "ar": "Arabic", "ja": "Japanese",
+    },
+    "it": {
+        "original": "Versione originale", "fr": "Francese", "en": "Inglese", "it": "Italiano",
+        "pt": "Portoghese", "es": "Spagnolo", "de": "Tedesco", "ru": "Russo",
+        "zh": "Cinese", "hi": "Hindi", "ar": "Arabo", "ja": "Giapponese",
+    },
+    "pt": {
+        "original": "Versão original", "fr": "Francês", "en": "Inglês", "it": "Italiano",
+        "pt": "Português", "es": "Espanhol", "de": "Alemão", "ru": "Russo",
+        "zh": "Chinês", "hi": "Hindi", "ar": "Árabe", "ja": "Japonês",
+    },
+    "es": {
+        "original": "Versión original", "fr": "Francés", "en": "Inglés", "it": "Italiano",
+        "pt": "Portugués", "es": "Español", "de": "Alemán", "ru": "Ruso",
+        "zh": "Chino", "hi": "Hindi", "ar": "Árabe", "ja": "Japonés",
+    },
+    "de": {
+        "original": "Originalversion", "fr": "Französisch", "en": "Englisch", "it": "Italienisch",
+        "pt": "Portugiesisch", "es": "Spanisch", "de": "Deutsch", "ru": "Russisch",
+        "zh": "Chinesisch", "hi": "Hindi", "ar": "Arabisch", "ja": "Japanisch",
+    },
+    "ru": {
+        "original": "Оригинальная версия", "fr": "Французский", "en": "Английский", "it": "Итальянский",
+        "pt": "Португальский", "es": "Испанский", "de": "Немецкий", "ru": "Русский",
+        "zh": "Китайский", "hi": "Хинди", "ar": "Арабский", "ja": "Японский",
+    },
+    "zh": {
+        "original": "原始版本", "fr": "法语", "en": "英语", "it": "意大利语",
+        "pt": "葡萄牙语", "es": "西班牙语", "de": "德语", "ru": "俄语",
+        "zh": "中文", "hi": "印地语", "ar": "阿拉伯语", "ja": "日语",
+    },
+    "hi": {
+        "original": "मूल संस्करण", "fr": "फ़्रेंच", "en": "अंग्रेज़ी", "it": "इटैलियन",
+        "pt": "पॉर्चुगीज़", "es": "स्पैनिश", "de": "जर्मन", "ru": "रूसी",
+        "zh": "चीनी", "hi": "हिन्दी", "ar": "अरबी", "ja": "जापानी",
+    },
+    "ar": {
+        "original": "النسخة الأصلية", "fr": "الفرنسية", "en": "الإنجليزية", "it": "الإيطالية",
+        "pt": "البرتغالية", "es": "الإسبانية", "de": "الألمانية", "ru": "الروسية",
+        "zh": "الصينية", "hi": "الهندية", "ar": "العربية", "ja": "اليابانية",
+    },
+    "ja": {
+        "original": "オリジナル版", "fr": "フランス語", "en": "英語", "it": "イタリア語",
+        "pt": "ポルトガル語", "es": "スペイン語", "de": "ドイツ語", "ru": "ロシア語",
+        "zh": "中国語", "hi": "ヒンディー語", "ar": "アラビア語", "ja": "日本語",
+    },
+}
+
+
+def language_name(lang_key: str, ui_language: str) -> str:
+    """Nom de lang_key, traduit dans ui_language (repli sur config.DISPLAY_NAMES)."""
+    return LANGUAGE_NAMES.get(ui_language, {}).get(lang_key) or config.DISPLAY_NAMES[lang_key]
+
+
 TEXTS = {
     "choose_ui_language": {
         "fr": "Bonjour ! Choisissez la langue de l'interface :",
@@ -102,10 +204,88 @@ TEXTS = {
         "ar": "⬅️ القائمة الرئيسية",
         "ja": "⬅️ メインメニュー",
     },
+    "new_video_available_title": {
+        "fr": "🎬 Nouvelle vidéo disponible !",
+        "en": "🎬 New video available!",
+        "it": "🎬 Nuovo video disponibile!",
+        "pt": "🎬 Novo vídeo disponível!",
+        "es": "🎬 ¡Nuevo vídeo disponible!",
+        "de": "🎬 Neues Video verfügbar!",
+        "ru": "🎬 Доступно новое видео!",
+        "zh": "🎬 新视频已发布！",
+        "hi": "🎬 नया वीडियो उपलब्ध है!",
+        "ar": "🎬 فيديو جديد متاح!",
+        "ja": "🎬 新しい動画が公開されました！",
+    },
+    "newsletter_subscribed": {
+        "fr": "🔔 Tu es abonné(e) à la newsletter : tu seras averti(e) dès qu'une nouvelle vidéo est disponible.",
+        "en": "🔔 You're subscribed to the newsletter: you'll be notified as soon as a new video is available.",
+        "it": "🔔 Sei iscritto/a alla newsletter: sarai avvisato/a non appena un nuovo video è disponibile.",
+        "pt": "🔔 Você está inscrito(a) na newsletter: será avisado(a) assim que um novo vídeo estiver disponível.",
+        "es": "🔔 Estás suscrito/a al boletín: se te avisará en cuanto haya un nuevo vídeo disponible.",
+        "de": "🔔 Du bist für den Newsletter angemeldet: du wirst benachrichtigt, sobald ein neues Video verfügbar ist.",
+        "ru": "🔔 Вы подписаны на рассылку: вы получите уведомление, как только появится новое видео.",
+        "zh": "🔔 您已订阅新闻推送：新视频发布后会立即通知您。",
+        "hi": "🔔 आप न्यूज़लेटर के लिए सदस्यता ले चुके हैं: नया वीडियो उपलब्ध होते ही आपको सूचित किया जाएगा।",
+        "ar": "🔔 أنت مشترك في النشرة الإخبارية: سيتم إعلامك فور توفر فيديو جديد.",
+        "ja": "🔔 ニュースレターに登録済みです。新しい動画が公開されるとお知らせします。",
+    },
+    "newsletter_unsubscribed": {
+        "fr": "🔕 Tu es désabonné(e). Tu ne recevras plus de notification pour les nouvelles vidéos.",
+        "en": "🔕 You're unsubscribed. You won't receive notifications for new videos anymore.",
+        "it": "🔕 Ti sei disiscritto/a. Non riceverai più notifiche per i nuovi video.",
+        "pt": "🔕 Você cancelou a inscrição. Não receberá mais notificações de novos vídeos.",
+        "es": "🔕 Te has dado de baja. Ya no recibirás notificaciones de nuevos vídeos.",
+        "de": "🔕 Du bist abgemeldet. Du erhältst keine Benachrichtigungen mehr für neue Videos.",
+        "ru": "🔕 Вы отписались. Вы больше не будете получать уведомления о новых видео.",
+        "zh": "🔕 您已取消订阅，将不再收到新视频通知。",
+        "hi": "🔕 आपने सदस्यता समाप्त कर दी है। अब आपको नए वीडियो की सूचना नहीं मिलेगी।",
+        "ar": "🔕 لقد ألغيت الاشتراك. لن تتلقى إشعارات بالفيديوهات الجديدة بعد الآن.",
+        "ja": "🔕 登録を解除しました。今後、新しい動画の通知は届きません。",
+    },
+    "unsubscribe_button": {
+        "fr": "🔕 Se désabonner",
+        "en": "🔕 Unsubscribe",
+        "it": "🔕 Disiscriviti",
+        "pt": "🔕 Cancelar inscrição",
+        "es": "🔕 Darse de baja",
+        "de": "🔕 Abmelden",
+        "ru": "🔕 Отписаться",
+        "zh": "🔕 取消订阅",
+        "hi": "🔕 सदस्यता समाप्त करें",
+        "ar": "🔕 إلغاء الاشتراك",
+        "ja": "🔕 登録解除",
+    },
+    "resubscribe_button": {
+        "fr": "🔔 Se réabonner",
+        "en": "🔔 Resubscribe",
+        "it": "🔔 Iscriviti di nuovo",
+        "pt": "🔔 Inscrever-se novamente",
+        "es": "🔔 Volver a suscribirse",
+        "de": "🔔 Erneut anmelden",
+        "ru": "🔔 Подписаться снова",
+        "zh": "🔔 重新订阅",
+        "hi": "🔔 फिर से सदस्यता लें",
+        "ar": "🔔 إعادة الاشتراك",
+        "ja": "🔔 再登録",
+    },
+    "change_ui_language_button": {
+        "fr": "🌐 Changer la langue de l'interface",
+        "en": "🌐 Change interface language",
+        "it": "🌐 Cambia lingua dell'interfaccia",
+        "pt": "🌐 Alterar idioma da interface",
+        "es": "🌐 Cambiar idioma de la interfaz",
+        "de": "🌐 Sprache der Oberfläche ändern",
+        "ru": "🌐 Изменить язык интерфейса",
+        "zh": "🌐 更改界面语言",
+        "hi": "🌐 इंटरफ़ेस की भाषा बदलें",
+        "ar": "🌐 تغيير لغة الواجهة",
+        "ja": "🌐 インターフェースの言語を変更",
+    },
 }
 
 
 def t(key: str, ui_language: str, **kwargs) -> str:
     entry = TEXTS.get(key, {})
-    text = entry.get(ui_language) or entry.get(config.SOURCE_TEXT_LANGUAGE, "")
+    text = entry.get(ui_language) or entry.get(config.DEFAULT_UI_LANGUAGE, "")
     return text.format(**kwargs) if kwargs else text

@@ -140,6 +140,7 @@ async def process_batch(bot: Bot, base_name: str, batch_dir):
     published_map = state_db.get_all_for_base(base_name)
     if len(published_map) == len(config.ALL_KEYS):
         await apply_cross_links(bot, base_name, published_map)
+        await notify_subscribers(bot, base_name, published_map)
     else:
         missing = set(config.ALL_KEYS) - set(published_map.keys())
         logger.warning("[%s] Lot incomplet en base après traitement, manque : %s", base_name, missing)
@@ -155,13 +156,25 @@ async def apply_cross_links(bot: Bot, base_name: str, published_map: dict = None
         if pv.cross_links_applied:
             continue
 
-        lines = [i18n.CROSS_LINK_INTRO.get(lang_key, i18n.CROSS_LINK_INTRO["fr"])]
+        lines = [i18n.CROSS_LINK_INTRO.get(lang_key, i18n.CROSS_LINK_INTRO["en"])]
         for other_key, other_pv in published_map.items():
             if other_key == lang_key:
                 continue
             link = config.channel_link(other_key, other_pv.message_id)
             display = html.escape(config.DISPLAY_NAMES[other_key])
             lines.append(f'<a href="{link}">{display}</a>')
+
+        # NB pointant vers la version modifiable (sans voix) : jamais sur le
+        # canal "original" lui-même, puisqu'il EST cette version.
+        if lang_key != "original":
+            original_pv = published_map.get("original")
+            if original_pv is not None:
+                note = i18n.EDITABLE_VERSION_NOTE.get(lang_key, i18n.EDITABLE_VERSION_NOTE["en"])
+                label = html.escape(i18n.EDITABLE_VERSION_LABEL.get(lang_key, i18n.EDITABLE_VERSION_LABEL["en"]))
+                editable_link = config.channel_link("original", original_pv.message_id)
+                lines.append("")
+                lines.append(note)
+                lines.append(f'<a href="{editable_link}">{label}</a>')
 
         full_caption = pv.caption_base + "\n\n" + "\n".join(lines)
         chat_id = config.chat_id_for(lang_key)
@@ -179,3 +192,54 @@ async def apply_cross_links(bot: Bot, base_name: str, published_map: dict = None
             state_db.mark_cross_links_applied(base_name, lang_key)
         except Exception:
             logger.exception("[%s] Échec de l'édition des liens croisés pour %s", base_name, lang_key)
+
+
+async def notify_subscribers(bot: Bot, base_name: str, published_map: dict):
+    """Envoie la newsletter à chaque abonné, dans SA langue d'interface : titre +
+    description dans cette langue (toujours présente, car la langue d'UI ne
+    peut être que l'une des config.LANGUAGES, donc déjà publiée à ce stade ;
+    repli défensif sur l'anglais sinon), la liste des liens vers les autres
+    langues (noms traduits dans la langue d'interface du destinataire, cf.
+    i18n.LANGUAGE_NAMES), puis le NB pointant vers la version modifiable —
+    utile si l'abonné veut traduire vers une langue locale ou non prise en
+    charge nativement par le bot."""
+    subscribers = state_db.get_subscribed_users()
+    if not subscribers:
+        return
+
+    original_pv = published_map.get("original")
+
+    for user_id, ui_language in subscribers:
+        pv = published_map.get(ui_language) or published_map.get(config.DEFAULT_UI_LANGUAGE)
+        if pv is None:
+            continue
+
+        lines = [
+            i18n.t("new_video_available_title", ui_language),
+            "",
+            pv.caption_base,
+            "",
+            i18n.CROSS_LINK_INTRO.get(ui_language, i18n.CROSS_LINK_INTRO["en"]),
+        ]
+        for other_key, other_pv in published_map.items():
+            if other_key == pv.lang_key:
+                continue
+            link = config.channel_link(other_key, other_pv.message_id)
+            display = html.escape(i18n.language_name(other_key, ui_language))
+            lines.append(f'<a href="{link}">{display}</a>')
+
+        if original_pv is not None:
+            note = i18n.EDITABLE_VERSION_NOTE.get(ui_language, i18n.EDITABLE_VERSION_NOTE["en"])
+            label = html.escape(i18n.EDITABLE_VERSION_LABEL.get(ui_language, i18n.EDITABLE_VERSION_LABEL["en"]))
+            editable_link = config.channel_link("original", original_pv.message_id)
+            lines.append("")
+            lines.append(note)
+            lines.append(f'<a href="{editable_link}">{label}</a>')
+
+        try:
+            async def _do_send(user_id=user_id, text="\n".join(lines)):
+                await bot.send_message(chat_id=user_id, text=text, parse_mode="HTML")
+
+            await _with_retries(_do_send, label=f"newsletter -> {user_id}")
+        except Exception:
+            logger.exception("[%s] Échec de l'envoi de la newsletter à %s", base_name, user_id)

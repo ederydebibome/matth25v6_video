@@ -21,6 +21,7 @@ SCHEMA = """
 CREATE TABLE IF NOT EXISTS users (
     telegram_user_id INTEGER PRIMARY KEY,
     ui_language      TEXT NOT NULL,
+    subscribed       INTEGER NOT NULL DEFAULT 1,
     created_at       TEXT NOT NULL,
     updated_at       TEXT NOT NULL
 );
@@ -57,6 +58,13 @@ def _connect():
 def init_db():
     with _connect() as conn:
         conn.executescript(SCHEMA)
+        # Migration : ajoute la colonne "subscribed" si la DB existait déjà
+        # avant son introduction (CREATE TABLE IF NOT EXISTS ne la crée pas
+        # rétroactivement sur une table existante).
+        try:
+            conn.execute("ALTER TABLE users ADD COLUMN subscribed INTEGER NOT NULL DEFAULT 1")
+        except sqlite3.OperationalError:
+            pass  # colonne déjà présente
 
 
 # ---------------------------------------------------------------------------
@@ -84,6 +92,34 @@ def get_user_language(telegram_user_id: int) -> Optional[str]:
             (telegram_user_id,),
         ).fetchone()
         return row["ui_language"] if row else None
+
+
+def set_subscribed(telegram_user_id: int, subscribed: bool):
+    with _connect() as conn:
+        conn.execute(
+            "UPDATE users SET subscribed = ?, updated_at = ? WHERE telegram_user_id = ?",
+            (1 if subscribed else 0, _now(), telegram_user_id),
+        )
+
+
+def is_subscribed(telegram_user_id: int) -> bool:
+    """True si l'utilisateur est abonné à la newsletter (par défaut : True,
+    y compris si l'utilisateur n'a pas encore de ligne en base)."""
+    with _connect() as conn:
+        row = conn.execute(
+            "SELECT subscribed FROM users WHERE telegram_user_id = ?",
+            (telegram_user_id,),
+        ).fetchone()
+        return bool(row["subscribed"]) if row else True
+
+
+def get_subscribed_users() -> list[tuple[int, str]]:
+    """[(telegram_user_id, ui_language), ...] pour tous les abonnés à la newsletter."""
+    with _connect() as conn:
+        rows = conn.execute(
+            "SELECT telegram_user_id, ui_language FROM users WHERE subscribed = 1",
+        ).fetchall()
+        return [(r["telegram_user_id"], r["ui_language"]) for r in rows]
 
 
 # ---------------------------------------------------------------------------

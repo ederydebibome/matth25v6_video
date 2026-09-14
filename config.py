@@ -36,8 +36,13 @@ BOT_TOKEN = os.getenv("BOT_TOKEN", "")  # À renseigner dans .env
 LANGUAGES = ["fr", "en", "it", "pt", "es", "de", "ru", "zh", "hi", "ar", "ja"]
 
 # Langue source du fichier .txt déposé par l'utilisateur (pas besoin de
-# traduction DeepSeek pour celle-ci).
+# traduction DeepSeek pour celle-ci). Concerne UNIQUEMENT le pipeline de
+# contenu vidéo (le .txt est rédigé en français côté production).
 SOURCE_TEXT_LANGUAGE = "fr"
+
+# Langue d'UI par défaut quand celle de l'utilisateur est inconnue (pas
+# encore choisie). L'anglais, langue internationale, plutôt que le français.
+DEFAULT_UI_LANGUAGE = "en"
 
 # Toutes les "clés" de publication (canaux), y compris l'original.
 ALL_KEYS = ["original"] + LANGUAGES
