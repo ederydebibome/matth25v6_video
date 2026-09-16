@@ -129,7 +129,12 @@ async def on_content_language_chosen(update: Update, context: ContextTypes.DEFAU
 
     videos = state_db.get_videos_by_language(content_lang)
     if not videos:
-        await query.edit_message_text(i18n.t("no_videos_yet", ui_language))
+        await query.edit_message_text(
+            i18n.t("no_videos_yet", ui_language),
+            reply_markup=InlineKeyboardMarkup(
+                [[InlineKeyboardButton(i18n.t("back_to_menu", ui_language), callback_data="back_to_menu")]]
+            ),
+        )
         return
 
     buttons = [
@@ -161,16 +166,6 @@ async def on_video_chosen(update: Update, context: ContextTypes.DEFAULT_TYPE):
         chat_id=user_id,
         from_chat_id=f"@{video.channel_username}",
         message_id=video.message_id,
-    )
-
-    # Sans ce message, le seul bouton "Menu principal" reste accroché à la
-    # liste des titres, qui remonte dans l'historique à chaque vidéo envoyée.
-    await context.bot.send_message(
-        chat_id=user_id,
-        text=i18n.t("video_sent", ui_language),
-        reply_markup=InlineKeyboardMarkup(
-            [[InlineKeyboardButton(i18n.t("back_to_menu", ui_language), callback_data="back_to_menu")]]
-        ),
     )
 
 

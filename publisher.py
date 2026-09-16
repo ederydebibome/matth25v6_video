@@ -1,10 +1,19 @@
 """
-Orchestration complète du traitement d'un lot ("base_name") :
-  1. Publie l'original (sans voix) + les 11 langues (traduction DeepSeek pour
-     toutes sauf le fr, qui utilise directement le .txt source).
-  2. Supprime chaque vidéo/txt du VPS dès qu'il est publié.
-  3. Quand les 12 sont publiées, édite chaque légende pour ajouter les liens
-     croisés natifs Telegram vers les 11 autres.
+Orchestration complète du traitement d'un lot ("base_name"), en 4 phases :
+  1. Traduction (DeepSeek) des 10 langues doublées, écrite dans des .txt
+     persistants — résumable : si le .txt existe déjà, on ne retraduit pas.
+  2. Compression ffmpeg des 12 vidéos (original + 11 langues) vers un chemin
+     déterministe — résumable : si le fichier compressé existe déjà, on ne
+     recompresse pas.
+  3. Une fois les 12 compressions prêtes, publication groupée des 12, avec
+     1 seconde d'écart entre chaque envoi — résumable via published_videos.
+  4. Quand les 12 sont publiées : édition des légendes pour ajouter les liens
+     croisés natifs Telegram, puis newsletter aux abonnés.
+
+Auto-réparation : si le .txt source (fr) a disparu du disque (lot interrompu
+avant la fin), il est reconstruit automatiquement à partir de ce qui est déjà
+publié en base (published_videos.title / caption_base de "fr", ou "original"
+à défaut) — aucune intervention manuelle nécessaire.
 """
 import asyncio
 import html
@@ -23,6 +32,7 @@ logger = logging.getLogger(__name__)
 
 MAX_ATTEMPTS = 3
 RETRY_DELAYS_SECONDS = (10, 30)
+PUBLISH_GAP_SECONDS = 1
 
 
 async def _with_retries(coro_fn, *, label: str):
@@ -48,35 +58,32 @@ def build_caption_base(title: str, description: str) -> str:
     return f"<b>{safe_title}</b>"
 
 
-async def _publish_video(bot: Bot, base_name: str, lang_key: str, video_path, title: str, caption_base: str):
-    compressed_path = await asyncio.to_thread(
-        video_processing.compress_video, video_path, base_name, lang_key
-    )
-    try:
-        chat_id = config.chat_id_for(lang_key)
+def _description_from_caption(caption_base: str, title: str) -> str:
+    """Inverse de build_caption_base() : retire le <b>titre</b> et dé-échappe le HTML."""
+    prefix = f"<b>{html.escape(title)}</b>"
+    remainder = caption_base[len(prefix):] if caption_base.startswith(prefix) else caption_base
+    remainder = remainder.lstrip("\n")
+    return html.unescape(remainder) if remainder else ""
 
-        async def _do_send():
-            with open(compressed_path, "rb") as f:
-                return await bot.send_video(
-                    chat_id=chat_id,
-                    video=f,
-                    caption=caption_base,
-                    parse_mode="HTML",
-                    supports_streaming=True,
-                )
 
-        message = await _with_retries(_do_send, label=f"[{lang_key}] publication {base_name}")
-        state_db.upsert_published(
-            base_name=base_name,
-            lang_key=lang_key,
-            channel_username=config.CHANNEL_USERNAMES[lang_key],
-            message_id=message.message_id,
-            title=title,
-            caption_base=caption_base,
-        )
-        return message.message_id
-    finally:
-        video_processing.cleanup(compressed_path)
+def _ensure_source_txt(base_name: str, batch_dir) -> bool:
+    """S'assure que <base_name>.txt existe. S'il a disparu (lot interrompu
+    par une ancienne version du pipeline qui le supprimait trop tôt), le
+    reconstruit à partir de published_videos ("fr", sinon "original").
+    Retourne False si impossible (rien en base non plus)."""
+    txt_path = batch_dir / f"{base_name}.txt"
+    if txt_path.exists():
+        return True
+
+    published = state_db.get_all_for_base(base_name)
+    source = published.get("fr") or published.get("original")
+    if source is None:
+        return False
+
+    description = _description_from_caption(source.caption_base, source.title)
+    txt_path.write_text(f"TITRE: {source.title}\nDESCRIPTION: {description}\n", encoding="utf-8")
+    logger.warning("[%s] .txt source manquant : reconstruit automatiquement depuis la base.", base_name)
+    return True
 
 
 def _unlink_video(batch_dir, stem: str):
@@ -87,60 +94,145 @@ def _unlink_video(batch_dir, stem: str):
         video.unlink()
 
 
+def _stem_for(base_name: str, key: str) -> str:
+    return base_name if key == "original" else f"{base_name}_{key}"
+
+
+def _compressed_path_for(base_name: str, key: str):
+    return config.TMP_DIR / f"{base_name}_compressed_{key}.mp4"
+
+
+async def _publish_video(bot: Bot, base_name: str, lang_key: str, video_path, title: str, caption_base: str):
+    chat_id = config.chat_id_for(lang_key)
+
+    async def _do_send():
+        with open(video_path, "rb") as f:
+            return await bot.send_video(
+                chat_id=chat_id,
+                video=f,
+                caption=caption_base,
+                parse_mode="HTML",
+                supports_streaming=True,
+            )
+
+    message = await _with_retries(_do_send, label=f"[{lang_key}] publication {base_name}")
+    state_db.upsert_published(
+        base_name=base_name,
+        lang_key=lang_key,
+        channel_username=config.CHANNEL_USERNAMES[lang_key],
+        message_id=message.message_id,
+        title=title,
+        caption_base=caption_base,
+    )
+
+
+def _cleanup_after_publish(batch_dir, base_name: str, lang_key: str):
+    _unlink_video(batch_dir, _stem_for(base_name, lang_key))
+    if lang_key not in ("original", "fr"):
+        lang_txt = batch_dir / f"{base_name}_{lang_key}.txt"
+        if lang_txt.exists():
+            lang_txt.unlink()
+    video_processing.cleanup(_compressed_path_for(base_name, lang_key))
+
+
 async def process_batch(bot: Bot, base_name: str, batch_dir):
     """Traite un lot complet déposé dans batch_dir (voir incoming_watcher.py)."""
     original_txt = batch_dir / f"{base_name}.txt"
 
+    if not _ensure_source_txt(base_name, batch_dir):
+        logger.error(
+            "[%s] .txt source manquant et rien en base pour le reconstruire — lot bloqué, intervention nécessaire.",
+            base_name,
+        )
+        return
+
     title_fr, description_fr = translator.parse_txt(original_txt.read_text(encoding="utf-8"))
     caption_fr = build_caption_base(title_fr, description_fr)
 
-    # 1) Original (sans voix) — utilise le texte français, pas de langue propre.
-    if not state_db.get_published(base_name, "original"):
-        logger.info("[%s] Publication de l'original...", base_name)
-        original_video = config.find_video(batch_dir, base_name)
-        await _publish_video(bot, base_name, "original", original_video, title_fr, caption_fr)
-    _unlink_video(batch_dir, base_name)
+    content = {
+        "fr": (title_fr, caption_fr),
+    }
 
-    # 2) Français — même texte, pas de traduction nécessaire.
-    if not state_db.get_published(base_name, "fr"):
-        logger.info("[%s] Publication FR...", base_name)
-        fr_video = config.find_video(batch_dir, f"{base_name}_fr")
-        await _publish_video(bot, base_name, "fr", fr_video, title_fr, caption_fr)
-    _unlink_video(batch_dir, f"{base_name}_fr")
-
-    # Le .txt source n'est plus nécessaire une fois original + fr publiés.
-    if original_txt.exists():
-        original_txt.unlink()
-
-    # 3) Les 10 autres langues — traduction DeepSeek à chaque fois.
+    # ---- Phase 1 : traduction (résumable) -------------------------------
     for lang in config.LANGUAGES:
-        if lang == "fr":
-            continue
-        if state_db.get_published(base_name, lang):
+        if lang == "fr" or state_db.get_published(base_name, lang):
             continue
 
         lang_txt = batch_dir / f"{base_name}_{lang}.txt"
-
-        logger.info("[%s] Traduction DeepSeek -> %s...", base_name, lang)
-        title, description = await asyncio.to_thread(
-            translator.translate_txt, title_fr, description_fr, lang
-        )
-        lang_txt.write_text(f"TITRE: {title}\nDESCRIPTION: {description}\n", encoding="utf-8")
-
-        caption = build_caption_base(title, description)
-        logger.info("[%s] Publication %s...", base_name, lang)
-        lang_video = config.find_video(batch_dir, f"{base_name}_{lang}")
-        await _publish_video(bot, base_name, lang, lang_video, title, caption)
-
-        _unlink_video(batch_dir, f"{base_name}_{lang}")
         if lang_txt.exists():
-            lang_txt.unlink()
+            title, description = translator.parse_txt(lang_txt.read_text(encoding="utf-8"))
+        else:
+            logger.info("[%s] Traduction DeepSeek -> %s...", base_name, lang)
+            title, description = await asyncio.to_thread(
+                translator.translate_txt, title_fr, description_fr, lang
+            )
+            lang_txt.write_text(f"TITRE: {title}\nDESCRIPTION: {description}\n", encoding="utf-8")
 
-    # 4) Si les 12 sont publiées, on ajoute les liens croisés.
+        content[lang] = (title, build_caption_base(title, description))
+
+    # "original" utilise le texte ANGLAIS (pas français) : c'est la version
+    # destinée à être retravaillée par d'autres monteurs.
+    if not state_db.get_published(base_name, "original"):
+        if "en" in content:
+            content["original"] = content["en"]
+        else:
+            en_published = state_db.get_published(base_name, "en")
+            if en_published is None:
+                logger.error("[%s] Texte anglais introuvable pour la légende de 'original'.", base_name)
+                return
+            content["original"] = (en_published.title, en_published.caption_base)
+
+    # ---- Phase 2 : compression de tout le lot (résumable) ---------------
+    # "original" n'est JAMAIS compressé : c'est la version destinée à être
+    # remontée par d'autres monteurs, elle doit rester en pleine qualité.
+    for key in config.ALL_KEYS:
+        if state_db.get_published(base_name, key):
+            continue  # déjà publié lors d'une tentative précédente
+
+        if key == "original":
+            if config.find_video(batch_dir, _stem_for(base_name, key)) is None:
+                logger.error("[%s] Vidéo source manquante pour 'original', lot incomplet.", base_name)
+                return
+            continue
+
+        compressed_path = _compressed_path_for(base_name, key)
+        if compressed_path.exists():
+            continue  # déjà compressé lors d'une tentative précédente
+
+        source_video = config.find_video(batch_dir, _stem_for(base_name, key))
+        if source_video is None:
+            logger.error("[%s] Vidéo source manquante pour '%s', lot incomplet.", base_name, key)
+            return
+
+        logger.info("[%s] Compression %s...", base_name, key)
+        await asyncio.to_thread(video_processing.compress_video_to, source_video, compressed_path)
+
+    # ---- Phase 3 : publication groupée, 1s d'écart -----------------------
+    for key in config.ALL_KEYS:
+        if state_db.get_published(base_name, key):
+            continue
+
+        title, caption = content[key]
+        if key == "original":
+            video_path = config.find_video(batch_dir, _stem_for(base_name, key))
+            if video_path is None:
+                logger.error("[%s] Vidéo source manquante pour 'original', lot incomplet.", base_name)
+                return
+        else:
+            video_path = _compressed_path_for(base_name, key)
+
+        logger.info("[%s] Publication %s...", base_name, key)
+        await _publish_video(bot, base_name, key, video_path, title, caption)
+        _cleanup_after_publish(batch_dir, base_name, key)
+        await asyncio.sleep(PUBLISH_GAP_SECONDS)
+
+    # ---- Phase 4 : liens croisés + newsletter, une fois les 12 publiées --
     published_map = state_db.get_all_for_base(base_name)
     if len(published_map) == len(config.ALL_KEYS):
         await apply_cross_links(bot, base_name, published_map)
         await notify_subscribers(bot, base_name, published_map)
+        if original_txt.exists():
+            original_txt.unlink()
     else:
         missing = set(config.ALL_KEYS) - set(published_map.keys())
         logger.warning("[%s] Lot incomplet en base après traitement, manque : %s", base_name, missing)

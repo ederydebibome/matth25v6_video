@@ -69,8 +69,23 @@ async def run_forever(bot: Bot):
                     logger.exception("[%s] Échec du traitement du lot", base_name)
                     continue
 
-                # Nettoyage final : le marqueur + le dossier (les fichiers ont déjà
-                # été supprimés au fur et à mesure par publisher.process_batch).
+                # On ne nettoie (marqueur + dossier) que si les 12 langues sont
+                # confirmées publiées en base : process_batch peut revenir sans
+                # exception tout en étant incomplet (texte/vidéo source manquant,
+                # traitement interrompu en cours de compression/publication...).
+                # Dans ce cas on laisse le marqueur en place pour retenter au
+                # prochain passage.
+                published_map = state_db.get_all_for_base(base_name)
+                if len(published_map) != len(config.ALL_KEYS):
+                    logger.warning(
+                        "[%s] Lot pas encore entièrement publié (%s/%s), nouvelle tentative au prochain passage.",
+                        base_name, len(published_map), len(config.ALL_KEYS),
+                    )
+                    continue
+
+                # Nettoyage final : le marqueur + le dossier (les fichiers —
+                # originaux, compressions et .txt de traduction — ont déjà été
+                # supprimés au fur et à mesure par publisher.process_batch).
                 marker = batch_dir / READY_MARKER
                 if marker.exists():
                     marker.unlink()
