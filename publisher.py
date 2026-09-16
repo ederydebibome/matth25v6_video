@@ -14,6 +14,17 @@ Auto-réparation : si le .txt source (fr) a disparu du disque (lot interrompu
 avant la fin), il est reconstruit automatiquement à partir de ce qui est déjà
 publié en base (published_videos.title / caption_base de "fr", ou "original"
 à défaut) — aucune intervention manuelle nécessaire.
+
+Repli "fichier trop volumineux" : si l'envoi d'une vidéo échoue parce qu'elle
+dépasse la limite de l'API Telegram standard (50 Mo), un message texte
+(titre + description) est publié à sa place et son message_id enregistré en
+base comme si c'était celui de la vidéo — le pipeline (liens croisés,
+newsletter) n'en a pas connaissance et continue normalement. Le fichier
+source est ensuite supprimé du VPS comme dans le cas normal (le lot ne doit
+pas rester bloqué) : c'est à l'opérateur humain de repérer ces publications
+"texte seul" et d'éditer le message pour y attacher la vidéo (recompressée
+ou envoyée via un serveur d'API local), en dehors du pipeline automatique.
+Voir _is_file_too_large_error / _publish_video.
 """
 import asyncio
 import html
@@ -102,7 +113,32 @@ def _compressed_path_for(base_name: str, key: str):
     return config.TMP_DIR / f"{base_name}_compressed_{key}.mp4"
 
 
-async def _publish_video(bot: Bot, base_name: str, lang_key: str, video_path, title: str, caption_base: str):
+# Mots-clés cherchés dans le message d'erreur Telegram pour identifier un rejet
+# lié à la taille du fichier (soit un 413 HTTP brut sans JSON valide quand pas
+# de serveur d'API local, soit le "Bad Request: file is too big" renvoyé par
+# l'API standard). Ce n'est pas un code d'erreur structuré côté Telegram, donc
+# on reste sur une détection texte, volontairement large.
+_SIZE_ERROR_MARKERS = ("too large", "too big", "413", "entity too large")
+
+
+def _is_file_too_large_error(exc: Exception) -> bool:
+    return any(marker in str(exc).lower() for marker in _SIZE_ERROR_MARKERS)
+
+
+async def _publish_video(bot: Bot, base_name: str, lang_key: str, video_path, title: str, caption_base: str) -> bool:
+    """Publie la vidéo. Retourne True si une vraie vidéo a été envoyée.
+
+    Si l'envoi échoue spécifiquement parce que le fichier est trop volumineux
+    pour l'API Telegram standard (>50 Mo, cf. _is_file_too_large_error), on
+    publie à la place un message texte (titre + description) et on enregistre
+    SON message_id en base comme si c'était celui de la vidéo : le pipeline
+    (liens croisés, newsletter, phase 4) n'a pas besoin de savoir qu'il s'agit
+    d'un repli, seul le message_id compte pour lui. Le fichier source est
+    ensuite supprimé normalement par _cleanup_after_publish, comme pour une
+    vraie vidéo publiée — c'est à l'opérateur d'éditer le message texte
+    manuellement pour y attacher la vidéo par la suite.
+    Toute autre erreur est laissée à se propager normalement.
+    """
     chat_id = config.chat_id_for(lang_key)
 
     async def _do_send():
@@ -115,7 +151,21 @@ async def _publish_video(bot: Bot, base_name: str, lang_key: str, video_path, ti
                 supports_streaming=True,
             )
 
-    message = await _with_retries(_do_send, label=f"[{lang_key}] publication {base_name}")
+    is_video = True
+    try:
+        message = await _with_retries(_do_send, label=f"[{lang_key}] publication {base_name}")
+    except Exception as exc:
+        if not _is_file_too_large_error(exc):
+            raise
+        is_video = False
+
+        async def _do_send_fallback():
+            return await bot.send_message(chat_id=chat_id, text=caption_base, parse_mode="HTML")
+
+        message = await _with_retries(
+            _do_send_fallback, label=f"[{lang_key}] publication (repli texte) {base_name}"
+        )
+
     state_db.upsert_published(
         base_name=base_name,
         lang_key=lang_key,
@@ -124,6 +174,7 @@ async def _publish_video(bot: Bot, base_name: str, lang_key: str, video_path, ti
         title=title,
         caption_base=caption_base,
     )
+    return is_video
 
 
 def _cleanup_after_publish(batch_dir, base_name: str, lang_key: str):
