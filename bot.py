@@ -113,7 +113,9 @@ async def on_change_ui_language(update: Update, context: ContextTypes.DEFAULT_TY
 
 async def on_newsletter_toggle(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Bouton d'abonnement/désabonnement depuis le menu principal : bascule
-    l'état, puis réaffiche le menu principal avec le libellé mis à jour."""
+    l'état, confirme (texte différent selon le sens), puis affiche le bouton
+    "Nouvelle demande" — pas le menu complet, comme partout ailleurs après
+    une action du bot."""
     query = update.callback_query
     await query.answer()
     action = query.data.split(":", 1)[1]  # "sub" ou "unsub"
@@ -122,15 +124,10 @@ async def on_newsletter_toggle(update: Update, context: ContextTypes.DEFAULT_TYP
 
     state_db.set_subscribed(user_id, action == "sub")
 
-    menu_text = i18n.t("choose_content_language", ui_language)
-    if action == "unsub":
-        # Même confirmation explicite que /quit, pour un comportement cohérent
-        # quel que soit le moyen utilisé pour se désabonner.
-        menu_text = i18n.t("newsletter_unsubscribed", ui_language) + "\n\n" + menu_text
-
+    confirmation_key = "newsletter_subscribed" if action == "sub" else "newsletter_unsubscribed"
     await query.edit_message_text(
-        menu_text,
-        reply_markup=_main_menu_keyboard(user_id, ui_language),
+        i18n.t(confirmation_key, ui_language),
+        reply_markup=_new_request_keyboard(ui_language),
     )
 
 
