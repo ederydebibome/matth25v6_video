@@ -32,7 +32,8 @@ CREATE TABLE IF NOT EXISTS published_videos (
     channel_username     TEXT NOT NULL,
     message_id           INTEGER NOT NULL,
     title                TEXT NOT NULL,
-    caption_base         TEXT NOT NULL,
+    caption_base          TEXT NOT NULL,
+    is_video             INTEGER NOT NULL DEFAULT 1,
     cross_links_applied  INTEGER NOT NULL DEFAULT 0,
     published_at         TEXT NOT NULL,
     PRIMARY KEY (base_name, lang_key)
@@ -58,11 +59,15 @@ def _connect():
 def init_db():
     with _connect() as conn:
         conn.executescript(SCHEMA)
-        # Migration : ajoute la colonne "subscribed" si la DB existait déjà
-        # avant son introduction (CREATE TABLE IF NOT EXISTS ne la crée pas
-        # rétroactivement sur une table existante).
+        # Migrations : ajoute les colonnes introduites après la création
+        # initiale de la table (CREATE TABLE IF NOT EXISTS ne les crée pas
+        # rétroactivement sur une table déjà existante).
         try:
             conn.execute("ALTER TABLE users ADD COLUMN subscribed INTEGER NOT NULL DEFAULT 1")
+        except sqlite3.OperationalError:
+            pass  # colonne déjà présente
+        try:
+            conn.execute("ALTER TABLE published_videos ADD COLUMN is_video INTEGER NOT NULL DEFAULT 1")
         except sqlite3.OperationalError:
             pass  # colonne déjà présente
 
@@ -133,6 +138,7 @@ class PublishedVideo:
     message_id: int
     title: str
     caption_base: str
+    is_video: int
     cross_links_applied: int
     published_at: str
 
@@ -144,21 +150,23 @@ def upsert_published(
     message_id: int,
     title: str,
     caption_base: str,
+    is_video: bool = True,
 ):
     with _connect() as conn:
         conn.execute(
             """
             INSERT INTO published_videos
-                (base_name, lang_key, channel_username, message_id, title, caption_base, cross_links_applied, published_at)
-            VALUES (?, ?, ?, ?, ?, ?, 0, ?)
+                (base_name, lang_key, channel_username, message_id, title, caption_base, is_video, cross_links_applied, published_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?)
             ON CONFLICT(base_name, lang_key) DO UPDATE SET
                 channel_username = excluded.channel_username,
                 message_id = excluded.message_id,
                 title = excluded.title,
                 caption_base = excluded.caption_base,
+                is_video = excluded.is_video,
                 published_at = excluded.published_at
             """,
-            (base_name, lang_key, channel_username, message_id, title, caption_base, _now()),
+            (base_name, lang_key, channel_username, message_id, title, caption_base, 1 if is_video else 0, _now()),
         )
 
 

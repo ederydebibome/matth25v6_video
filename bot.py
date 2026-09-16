@@ -168,6 +168,16 @@ async def on_video_chosen(update: Update, context: ContextTypes.DEFAULT_TYPE):
         message_id=video.message_id,
     )
 
+    # Le menu doit réapparaître après CHAQUE message du bot (sauf newsletter) :
+    # sans ça, il reste accroché au-dessus de la vidéo qu'on vient d'envoyer
+    # au lieu de suivre en bas de la conversation. Nouveau message, jamais une
+    # édition de l'ancien (qui resterait, lui, plus haut dans l'historique).
+    await context.bot.send_message(
+        chat_id=user_id,
+        text=i18n.t("choose_content_language", ui_language),
+        reply_markup=_main_menu_keyboard(user_id, ui_language),
+    )
+
 
 async def quit_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Commande /quit : désabonnement direct de la newsletter."""
@@ -175,6 +185,10 @@ async def quit_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ui_language = state_db.get_user_language(user_id) or config.DEFAULT_UI_LANGUAGE
     state_db.set_subscribed(user_id, False)
     await update.message.reply_text(i18n.t("newsletter_unsubscribed", ui_language))
+    await update.message.reply_text(
+        i18n.t("choose_content_language", ui_language),
+        reply_markup=_main_menu_keyboard(user_id, ui_language),
+    )
 
 
 async def on_any_message(update: Update, context: ContextTypes.DEFAULT_TYPE):

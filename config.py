@@ -108,6 +108,14 @@ VIDEO_PRESET = os.getenv("VIDEO_PRESET") or "medium"
 AUDIO_BITRATE_VIDEO = os.getenv("AUDIO_BITRATE_VIDEO") or "128k"
 
 # ---------------------------------------------------------------------------
+# Limite de taille de fichier (API Bot Telegram standard)
+# ---------------------------------------------------------------------------
+# Au-delà, l'envoi n'est même pas tenté (voir publisher._publish_video) : un
+# message texte (titre + description) est publié à la place, à charge pour un
+# opérateur humain d'y attacher la vidéo ensuite.
+MAX_UPLOAD_SIZE_BYTES = 50 * 1024 * 1024  # 50 Mo
+
+# ---------------------------------------------------------------------------
 # Watcher côté VPS (détection des lots complets déposés dans INCOMING_DIR)
 # ---------------------------------------------------------------------------
 INCOMING_POLL_SECONDS = int(os.getenv("INCOMING_POLL_SECONDS") or "15")
