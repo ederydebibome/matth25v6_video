@@ -56,6 +56,15 @@ def _main_menu_keyboard(user_id: int, ui_language: str) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(rows)
 
 
+def _new_request_keyboard(ui_language: str) -> InlineKeyboardMarkup:
+    """Un seul bouton : c'est en cliquant dessus que le menu principal
+    s'affiche (réutilise on_back_to_menu) — pas le menu complet directement
+    après chaque message du bot."""
+    return InlineKeyboardMarkup(
+        [[InlineKeyboardButton(i18n.t("new_request_button", ui_language), callback_data="back_to_menu")]]
+    )
+
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     ui_language = state_db.get_user_language(user_id) or config.DEFAULT_UI_LANGUAGE
@@ -113,8 +122,14 @@ async def on_newsletter_toggle(update: Update, context: ContextTypes.DEFAULT_TYP
 
     state_db.set_subscribed(user_id, action == "sub")
 
+    menu_text = i18n.t("choose_content_language", ui_language)
+    if action == "unsub":
+        # Même confirmation explicite que /quit, pour un comportement cohérent
+        # quel que soit le moyen utilisé pour se désabonner.
+        menu_text = i18n.t("newsletter_unsubscribed", ui_language) + "\n\n" + menu_text
+
     await query.edit_message_text(
-        i18n.t("choose_content_language", ui_language),
+        menu_text,
         reply_markup=_main_menu_keyboard(user_id, ui_language),
     )
 
@@ -168,14 +183,14 @@ async def on_video_chosen(update: Update, context: ContextTypes.DEFAULT_TYPE):
         message_id=video.message_id,
     )
 
-    # Le menu doit réapparaître après CHAQUE message du bot (sauf newsletter) :
-    # sans ça, il reste accroché au-dessus de la vidéo qu'on vient d'envoyer
-    # au lieu de suivre en bas de la conversation. Nouveau message, jamais une
-    # édition de l'ancien (qui resterait, lui, plus haut dans l'historique).
+    # Le menu ne doit pas s'afficher en entier après chaque message du bot
+    # (sauf newsletter) : un seul bouton "Nouvelle demande", qui affiche le
+    # menu au clic. Nouveau message, jamais une édition de l'ancien (qui
+    # resterait, lui, plus haut dans l'historique, au-dessus de la vidéo).
     await context.bot.send_message(
         chat_id=user_id,
-        text=i18n.t("choose_content_language", ui_language),
-        reply_markup=_main_menu_keyboard(user_id, ui_language),
+        text=i18n.t("new_request_button", ui_language),
+        reply_markup=_new_request_keyboard(ui_language),
     )
 
 
@@ -186,15 +201,16 @@ async def quit_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     state_db.set_subscribed(user_id, False)
     await update.message.reply_text(i18n.t("newsletter_unsubscribed", ui_language))
     await update.message.reply_text(
-        i18n.t("choose_content_language", ui_language),
-        reply_markup=_main_menu_keyboard(user_id, ui_language),
+        i18n.t("new_request_button", ui_language),
+        reply_markup=_new_request_keyboard(ui_language),
     )
 
 
 async def on_any_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """N'importe quel message (texte ou autre) hors commande réaffiche le
-    menu principal. Si l'utilisateur n'a encore jamais fait /start, on lui
-    montre d'abord le choix de la langue de l'interface."""
+    """N'importe quel message (texte ou autre) hors commande affiche le
+    bouton "Nouvelle demande" (le menu s'affiche seulement au clic dessus).
+    Si l'utilisateur n'a encore jamais fait /start, on lui montre d'abord le
+    choix de la langue de l'interface."""
     if update.message is None:
         return
 
@@ -209,8 +225,8 @@ async def on_any_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     await update.message.reply_text(
-        i18n.t("choose_content_language", ui_language),
-        reply_markup=_main_menu_keyboard(user_id, ui_language),
+        i18n.t("new_request_button", ui_language),
+        reply_markup=_new_request_keyboard(ui_language),
     )
 
 
