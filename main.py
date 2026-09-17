@@ -1,6 +1,6 @@
-"""Point d'entrée. Lance en parallèle :
-  - le bot utilisateur (polling Telegram, /start etc.)
-  - le watcher qui surveille INCOMING_DIR et publie les lots complets
+"""Entry point. Runs in parallel:
+  - the user-facing bot (Telegram polling, /start etc.)
+  - the watcher that monitors INCOMING_DIR and publishes complete batches
 """
 import asyncio
 import logging
@@ -21,19 +21,19 @@ logger = logging.getLogger(__name__)
 
 async def _post_init(application: Application):
     application.create_task(incoming_watcher.run_forever(application.bot))
-    logger.info("Watcher incoming lancé en tâche de fond.")
+    logger.info("Incoming watcher started as a background task.")
 
 
 def main():
     if not config.BOT_TOKEN:
-        raise RuntimeError("BOT_TOKEN manquant dans .env")
+        raise RuntimeError("BOT_TOKEN missing from .env")
 
     state_db.init_db()
 
     application = Application.builder().token(config.BOT_TOKEN).post_init(_post_init).build()
     bot.register_handlers(application)
 
-    logger.info("Bot démarré.")
+    logger.info("Bot started.")
     application.run_polling(allowed_updates=["message", "callback_query"])
 
 

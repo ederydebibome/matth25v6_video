@@ -1,13 +1,13 @@
 """
-DB locale du bot (bot_state.db).
+Bot's local DB (bot_state.db).
 
   - users(telegram_user_id, ui_language, created_at, updated_at)
   - published_videos(base_name, lang_key, channel_username, message_id,
                       title, caption_base, cross_links_applied, published_at)
-    lang_key vaut "original" ou l'un des codes langue (fr/en/it/pt/es/de).
-    caption_base = légende SANS les liens croisés (titre en gras + description),
-    conservée pour pouvoir reconstruire la légende complète lors de la passe finale
-    sans dépendre des fichiers .txt (supprimés entre-temps).
+    lang_key is "original" or one of the language codes (fr/en/it/pt/es/de).
+    caption_base = caption WITHOUT the cross-links (bold title + description),
+    kept so the full caption can be rebuilt during the final pass without
+    depending on the .txt files (deleted in the meantime).
 """
 import sqlite3
 from contextlib import contextmanager
@@ -59,17 +59,17 @@ def _connect():
 def init_db():
     with _connect() as conn:
         conn.executescript(SCHEMA)
-        # Migrations : ajoute les colonnes introduites après la création
-        # initiale de la table (CREATE TABLE IF NOT EXISTS ne les crée pas
-        # rétroactivement sur une table déjà existante).
+        # Migrations: add columns introduced after the table's initial
+        # creation (CREATE TABLE IF NOT EXISTS doesn't add them
+        # retroactively to an already-existing table).
         try:
             conn.execute("ALTER TABLE users ADD COLUMN subscribed INTEGER NOT NULL DEFAULT 1")
         except sqlite3.OperationalError:
-            pass  # colonne déjà présente
+            pass  # column already present
         try:
             conn.execute("ALTER TABLE published_videos ADD COLUMN is_video INTEGER NOT NULL DEFAULT 1")
         except sqlite3.OperationalError:
-            pass  # colonne déjà présente
+            pass  # column already present
 
 
 # ---------------------------------------------------------------------------
@@ -108,8 +108,8 @@ def set_subscribed(telegram_user_id: int, subscribed: bool):
 
 
 def is_subscribed(telegram_user_id: int) -> bool:
-    """True si l'utilisateur est abonné à la newsletter (par défaut : True,
-    y compris si l'utilisateur n'a pas encore de ligne en base)."""
+    """True if the user is subscribed to the newsletter (default: True,
+    including when the user doesn't have a row in the DB yet)."""
     with _connect() as conn:
         row = conn.execute(
             "SELECT subscribed FROM users WHERE telegram_user_id = ?",
@@ -119,7 +119,7 @@ def is_subscribed(telegram_user_id: int) -> bool:
 
 
 def get_subscribed_users() -> list[tuple[int, str]]:
-    """[(telegram_user_id, ui_language), ...] pour tous les abonnés à la newsletter."""
+    """[(telegram_user_id, ui_language), ...] for all newsletter subscribers."""
     with _connect() as conn:
         rows = conn.execute(
             "SELECT telegram_user_id, ui_language FROM users WHERE subscribed = 1",
@@ -180,7 +180,7 @@ def get_published(base_name: str, lang_key: str) -> Optional[PublishedVideo]:
 
 
 def get_all_for_base(base_name: str) -> dict:
-    """{lang_key: PublishedVideo} pour un item — sert à savoir si les 7 sont publiées."""
+    """{lang_key: PublishedVideo} for one item — used to know whether all 7 are published."""
     with _connect() as conn:
         rows = conn.execute(
             "SELECT * FROM published_videos WHERE base_name = ?",
@@ -191,12 +191,12 @@ def get_all_for_base(base_name: str) -> dict:
 
 def has_any_published(base_name: str) -> bool:
     """
-    True si au moins une langue de ce lot a déjà été publiée avec succès.
-    Sert à savoir si on reprend un traitement partiel (auquel cas les
-    fichiers déjà publiés ont normalement déjà été supprimés du disque,
-    ce qui est attendu, pas une anomalie) ou si c'est la toute première
-    tentative sur ce lot (auquel cas une vérification de complétude
-    physique des fichiers a du sens).
+    True if at least one language of this batch has already been
+    successfully published. Used to know whether we're resuming a partial
+    run (in which case the already-published files have normally already
+    been deleted from disk — expected, not an anomaly) or whether this is
+    the very first attempt on this batch (in which case checking that the
+    files are physically complete makes sense).
     """
     with _connect() as conn:
         row = conn.execute(
@@ -215,7 +215,7 @@ def mark_cross_links_applied(base_name: str, lang_key: str):
 
 
 def get_videos_by_language(lang_key: str) -> list:
-    """Utilisé par le menu utilisateur : liste des titres publiés dans une langue."""
+    """Used by the user menu: list of titles published in one language."""
     with _connect() as conn:
         rows = conn.execute(
             """

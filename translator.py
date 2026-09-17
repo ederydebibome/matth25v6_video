@@ -1,6 +1,10 @@
 """
-Traduction du fichier .txt (TITRE / DESCRIPTION) via l'API DeepSeek.
-Ne concerne QUE le contenu des vidéos — jamais les textes de l'interface du bot (i18n.py).
+Translation of the .txt file (TITRE / DESCRIPTION) via the DeepSeek API.
+Title and description are translated separately (one call per text):
+DeepSeek only receives the raw text to translate, never the TITRE:/
+DESCRIPTION: labels, which are only used to parse/write the .txt files
+themselves (parse_txt).
+Concerns ONLY video content — never the bot's interface text (i18n.py).
 """
 import logging
 import re
@@ -16,7 +20,7 @@ DESCRIPTION_RE = re.compile(r"^DESCRIPTION\s*:\s*(.*)$", re.MULTILINE | re.DOTAL
 
 
 def parse_txt(content: str) -> tuple[str, str]:
-    """Extrait (titre, description) d'un fichier au format:
+    """Extracts (title, description) from a file in the format:
     TITRE: ...
     DESCRIPTION: ...
     """
@@ -25,16 +29,16 @@ def parse_txt(content: str) -> tuple[str, str]:
     title = title_match.group(1).strip() if title_match else ""
     description = ""
     if desc_match:
-        # Coupe la description si jamais une ligne TITRE: réapparaît après (ne devrait pas arriver)
+        # Cuts off the description if a TITRE: line ever reappears after it (shouldn't happen)
         description = desc_match.group(1).strip()
     if not title:
-        raise ValueError("Impossible de trouver 'TITRE:' dans le fichier .txt")
+        raise ValueError("Could not find 'TITRE:' in the .txt file")
     return title, description
 
 
 def _call_deepseek(system_prompt: str, user_content: str) -> str:
     if not config.DEEPSEEK_API_KEY:
-        raise RuntimeError("DEEPSEEK_API_KEY manquant dans .env")
+        raise RuntimeError("DEEPSEEK_API_KEY missing from .env")
 
     response = requests.post(
         config.DEEPSEEK_API_URL,
@@ -48,7 +52,7 @@ def _call_deepseek(system_prompt: str, user_content: str) -> str:
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_content},
             ],
-            "temperature": 1.3,  # valeur recommandée par DeepSeek pour la traduction (doc officielle)
+            "temperature": 1.3,  # value recommended by DeepSeek for translation (official docs)
         },
         timeout=60,
     )
@@ -58,28 +62,24 @@ def _call_deepseek(system_prompt: str, user_content: str) -> str:
 
 
 def translate_txt(title_fr: str, description_fr: str, target_lang: str) -> tuple[str, str]:
-    """Traduit titre + description du français vers target_lang via DeepSeek.
-    Retourne (titre_traduit, description_traduite)."""
-    system_prompt = (
-        f"Tu es un traducteur professionnel. Traduis le texte fourni du français vers "
-        f"la langue de code ISO '{target_lang}'. Réponds STRICTEMENT dans ce format, "
-        f"sans aucun commentaire ni ajout :\n"
-        f"TITRE: <titre traduit>\n"
-        f"DESCRIPTION: <description traduite>"
-    )
-    user_content = f"TITRE: {title_fr}\nDESCRIPTION: {description_fr}"
+    """Translates the title and description via DeepSeek, in two separate
+    calls: each call only sees a single raw text to translate (the title,
+    or the description), without needing to know which one it is.
+    Returns (translated_title, translated_description)."""
+    lang_name = config.DEEPSEEK_LANG_NAMES.get(target_lang, target_lang)
+    if not config.DEEPSEEK_SYSTEM_PROMPT:
+        raise RuntimeError("DEEPSEEK_SYSTEM_PROMPT missing from .env")
+    system_prompt = config.DEEPSEEK_SYSTEM_PROMPT.format(lang_name=lang_name)
 
-    raw = _call_deepseek(system_prompt, user_content)
-    try:
-        return parse_txt(raw)
-    except ValueError:
-        logger.error("Réponse DeepSeek mal formée pour lang=%s : %r", target_lang, raw)
-        raise
+    title = _call_deepseek(system_prompt, title_fr).strip()
+    description = _call_deepseek(system_prompt, description_fr).strip() if description_fr else ""
+
+    return title, description
 
 
 def translate_txt_file(source_txt_path, target_lang: str, output_txt_path):
-    """Lit un .txt source (français), traduit, écrit le résultat dans output_txt_path
-    au même format TITRE:/DESCRIPTION:."""
+    """Reads a source .txt (French), translates it, writes the result to
+    output_txt_path in the same TITRE:/DESCRIPTION: format."""
     content = source_txt_path.read_text(encoding="utf-8")
     title_fr, description_fr = parse_txt(content)
     title, description = translate_txt(title_fr, description_fr, target_lang)

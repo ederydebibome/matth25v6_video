@@ -1,10 +1,10 @@
 """
-Bot utilisateur : /start -> langue UI -> menu principal -> liste des titres -> envoi.
-Les textes affichés viennent uniquement de i18n.py (jamais de DeepSeek).
+User-facing bot: /start -> UI language -> main menu -> title list -> send.
+All displayed text comes from i18n.py only (never from DeepSeek).
 
-Menu principal = sélection de la langue de consultation des vidéos, plus deux
-boutons toujours présents : changer la langue de l'interface, et s'abonner /
-se désabonner de la newsletter (état courant reflété dans le libellé).
+Main menu = video content-language selection, plus two buttons always
+present: change interface language, and subscribe/unsubscribe from the
+newsletter (current state reflected in the label).
 """
 import logging
 
@@ -35,8 +35,8 @@ def _language_keyboard(prefix: str) -> InlineKeyboardMarkup:
 
 
 def _main_menu_keyboard(user_id: int, ui_language: str) -> InlineKeyboardMarkup:
-    """Clavier du menu principal : langues de contenu + changer langue UI +
-    dé/réabonnement newsletter (libellé selon l'état actuel de l'utilisateur)."""
+    """Main menu keyboard: content languages + change UI language +
+    subscribe/unsubscribe newsletter (label depends on the user's current state)."""
     rows = list(_language_keyboard("content_lang").inline_keyboard)
 
     rows.append([
@@ -57,9 +57,8 @@ def _main_menu_keyboard(user_id: int, ui_language: str) -> InlineKeyboardMarkup:
 
 
 def _new_request_keyboard(ui_language: str) -> InlineKeyboardMarkup:
-    """Un seul bouton : c'est en cliquant dessus que le menu principal
-    s'affiche (réutilise on_back_to_menu) — pas le menu complet directement
-    après chaque message du bot."""
+    """A single button: clicking it is what displays the main menu (reuses
+    on_back_to_menu) — not the full menu directly after every bot message."""
     return InlineKeyboardMarkup(
         [[InlineKeyboardButton(i18n.t("new_request_button", ui_language), callback_data="back_to_menu")]]
     )
@@ -80,14 +79,14 @@ async def on_ui_language_chosen(update: Update, context: ContextTypes.DEFAULT_TY
     ui_language = query.data.split(":", 1)[1]
     user_id = update.effective_user.id
 
-    # Crée/mets à jour la ligne utilisateur, PUIS réabonne systématiquement :
-    # passer par /start (donc par cet écran) réabonne un utilisateur qui
-    # s'était désabonné, comme demandé.
+    # Create/update the user row, THEN always resubscribe: going through
+    # /start (and therefore this screen) resubscribes a user who had
+    # unsubscribed, as requested.
     state_db.set_user_language(user_id, ui_language)
     state_db.set_subscribed(user_id, True)
 
-    # Confirmation d'abonnement (avec le rappel de /quit pour se désabonner),
-    # affichée avec le menu principal.
+    # Subscription confirmation (with the /quit reminder to unsubscribe),
+    # shown together with the main menu.
     menu_text = (
         i18n.t("choose_content_language", ui_language)
         + "\n\n"
@@ -100,7 +99,7 @@ async def on_ui_language_chosen(update: Update, context: ContextTypes.DEFAULT_TY
 
 
 async def on_change_ui_language(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Bouton "Changer la langue de l'interface" depuis le menu principal."""
+    """"Change interface language" button from the main menu."""
     query = update.callback_query
     await query.answer()
     user_id = update.effective_user.id
@@ -112,13 +111,13 @@ async def on_change_ui_language(update: Update, context: ContextTypes.DEFAULT_TY
 
 
 async def on_newsletter_toggle(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Bouton d'abonnement/désabonnement depuis le menu principal : bascule
-    l'état, confirme (texte différent selon le sens), puis affiche le bouton
-    "Nouvelle demande" — pas le menu complet, comme partout ailleurs après
-    une action du bot."""
+    """Subscribe/unsubscribe button from the main menu: toggles the state,
+    confirms (different text depending on direction), then shows the
+    "New request" button — not the full menu, like everywhere else after
+    a bot action."""
     query = update.callback_query
     await query.answer()
-    action = query.data.split(":", 1)[1]  # "sub" ou "unsub"
+    action = query.data.split(":", 1)[1]  # "sub" or "unsub"
     user_id = update.effective_user.id
     ui_language = state_db.get_user_language(user_id) or config.DEFAULT_UI_LANGUAGE
 
@@ -180,10 +179,10 @@ async def on_video_chosen(update: Update, context: ContextTypes.DEFAULT_TYPE):
         message_id=video.message_id,
     )
 
-    # Le menu ne doit pas s'afficher en entier après chaque message du bot
-    # (sauf newsletter) : un seul bouton "Nouvelle demande", qui affiche le
-    # menu au clic. Nouveau message, jamais une édition de l'ancien (qui
-    # resterait, lui, plus haut dans l'historique, au-dessus de la vidéo).
+    # The menu must not appear in full after every bot message (except the
+    # newsletter): just a single "New request" button, which shows the menu
+    # on click. Always a new message, never an edit of the old one (which
+    # would stay higher up in the history, above the video).
     await context.bot.send_message(
         chat_id=user_id,
         text=i18n.t("new_request_button", ui_language),
@@ -192,7 +191,7 @@ async def on_video_chosen(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def quit_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Commande /quit : désabonnement direct de la newsletter."""
+    """/quit command: direct newsletter unsubscription."""
     user_id = update.effective_user.id
     ui_language = state_db.get_user_language(user_id) or config.DEFAULT_UI_LANGUAGE
     state_db.set_subscribed(user_id, False)
@@ -204,10 +203,9 @@ async def quit_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def on_any_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """N'importe quel message (texte ou autre) hors commande affiche le
-    bouton "Nouvelle demande" (le menu s'affiche seulement au clic dessus).
-    Si l'utilisateur n'a encore jamais fait /start, on lui montre d'abord le
-    choix de la langue de l'interface."""
+    """Any message (text or other) other than a command shows the
+    "New request" button (the menu only appears on click). If the user has
+    never done /start yet, show the interface language choice first."""
     if update.message is None:
         return
 
@@ -247,7 +245,7 @@ def register_handlers(application: Application):
     application.add_handler(CallbackQueryHandler(on_video_chosen, pattern=r"^video:"))
     application.add_handler(CallbackQueryHandler(on_back_to_menu, pattern=r"^back_to_menu$"))
     application.add_handler(CallbackQueryHandler(on_newsletter_toggle, pattern=r"^newsletter:"))
-    # Doit être ajouté après les CommandHandler ci-dessus : ~filters.COMMAND
-    # exclut déjà /start et /quit, donc l'ordre n'a pas d'incidence, mais on
-    # le garde en dernier par convention (handler "attrape-tout").
+    # Must be added after the CommandHandlers above: ~filters.COMMAND already
+    # excludes /start and /quit, so the order doesn't actually matter, but
+    # it's kept last by convention (catch-all handler).
     application.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND, on_any_message))

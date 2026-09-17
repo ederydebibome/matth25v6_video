@@ -1,15 +1,15 @@
 """
-Surveille INCOMING_DIR côté VPS pour détecter les lots complets déposés par le PC.
+Watches INCOMING_DIR on the VPS side to detect complete batches dropped by the PC.
 
-Convention de dépôt (à respecter côté watcher_local.py / script SFTP) :
+Drop convention (must be respected by watcher_local.py / the SFTP script):
   INCOMING_DIR/<base_name>/<base_name>.mp4
   INCOMING_DIR/<base_name>/<base_name>.txt
-  INCOMING_DIR/<base_name>/<base_name>_fr.<ext>  ... _ja.<ext> (11 langues,
-                                                    <ext> parmi config.VIDEO_EXTENSIONS)
-  INCOMING_DIR/<base_name>/.ready              <-- créé en DERNIER, une fois
-                                                    tout le reste bien transféré.
-Le marqueur ".ready" est nécessaire pour ne jamais traiter un lot dont le
-transfert SFTP est encore en cours (fichiers arrivant un par un).
+  INCOMING_DIR/<base_name>/<base_name>_fr.<ext>  ... _ja.<ext> (11 languages,
+                                                    <ext> among config.VIDEO_EXTENSIONS)
+  INCOMING_DIR/<base_name>/.ready              <-- created LAST, once
+                                                    everything else has been transferred.
+The ".ready" marker is needed to never process a batch whose SFTP transfer
+is still in progress (files arriving one by one).
 """
 import asyncio
 import logging
@@ -39,62 +39,64 @@ def _batch_is_complete(batch_dir) -> bool:
     base_name = batch_dir.name
     missing = config.missing_batch_files(batch_dir, base_name)
     if missing:
-        logger.warning("[%s] Marqueur .ready présent mais fichiers manquants : %s", base_name, missing)
+        logger.warning("[%s] .ready marker present but files missing: %s", base_name, missing)
         return False
     return True
 
 
 async def run_forever(bot: Bot):
-    logger.info("Watcher incoming démarré (poll toutes les %ss)", config.INCOMING_POLL_SECONDS)
+    logger.info("Incoming watcher started (polling every %ss)", config.INCOMING_POLL_SECONDS)
     while True:
         try:
             for batch_dir in _find_ready_batches():
                 base_name = batch_dir.name
 
-                # La vérification de complétude physique ne fait sens QUE sur la
-                # toute première tentative (avant que rien n'ait été supprimé).
-                # Si une langue a déjà été publiée pour ce lot, on est en train de
-                # reprendre après un échec partiel : les fichiers déjà publiés ont
-                # normalement déjà été supprimés (attendu, pas une anomalie) —
-                # publisher.process_batch sait reprendre où il s'était arrêté via
-                # state_db, sans avoir besoin des fichiers déjà traités.
+                # The physical completeness check only makes sense on the
+                # very first attempt (before anything has been deleted). If
+                # a language has already been published for this batch,
+                # we're resuming after a partial failure: the already-
+                # published files have normally already been deleted
+                # (expected, not an anomaly) — publisher.process_batch knows
+                # how to resume where it left off via state_db, without
+                # needing the already-processed files.
                 if not state_db.has_any_published(base_name):
                     if not _batch_is_complete(batch_dir):
                         continue
 
-                logger.info("[%s] Lot détecté, traitement...", base_name)
+                logger.info("[%s] Batch detected, processing...", base_name)
                 try:
                     await publisher.process_batch(bot, base_name, batch_dir)
                 except Exception:
-                    logger.exception("[%s] Échec du traitement du lot", base_name)
+                    logger.exception("[%s] Failed to process batch", base_name)
                     continue
 
-                # On ne nettoie (marqueur + dossier) que si les 12 langues sont
-                # confirmées publiées en base : process_batch peut revenir sans
-                # exception tout en étant incomplet (texte/vidéo source manquant,
-                # traitement interrompu en cours de compression/publication...).
-                # Dans ce cas on laisse le marqueur en place pour retenter au
-                # prochain passage.
+                # Only clean up (marker + folder) if all 12 languages are
+                # confirmed published in the DB: process_batch can return
+                # without an exception while still being incomplete (missing
+                # source text/video, processing interrupted during
+                # compression/publication...). In that case the marker is
+                # left in place to retry on the next pass.
                 published_map = state_db.get_all_for_base(base_name)
                 if len(published_map) != len(config.ALL_KEYS):
                     logger.warning(
-                        "[%s] Lot pas encore entièrement publié (%s/%s), nouvelle tentative au prochain passage.",
+                        "[%s] Batch not fully published yet (%s/%s), will retry on the next pass.",
                         base_name, len(published_map), len(config.ALL_KEYS),
                     )
                     continue
 
-                # Nettoyage final : le marqueur + le dossier (les fichiers —
-                # originaux, compressions et .txt de traduction — ont déjà été
-                # supprimés au fur et à mesure par publisher.process_batch).
+                # Final cleanup: the marker + the folder (the files —
+                # originals, compressed versions and translation .txt files —
+                # have already been deleted along the way by
+                # publisher.process_batch).
                 marker = batch_dir / READY_MARKER
                 if marker.exists():
                     marker.unlink()
                 try:
                     batch_dir.rmdir()
                 except OSError:
-                    logger.warning("[%s] Dossier non vide après traitement, fichiers restants : %s",
+                    logger.warning("[%s] Folder not empty after processing, remaining files: %s",
                                     base_name, list(batch_dir.iterdir()))
         except Exception:
-            logger.exception("Erreur inattendue dans la boucle du watcher incoming")
+            logger.exception("Unexpected error in the incoming watcher loop")
 
         await asyncio.sleep(config.INCOMING_POLL_SECONDS)

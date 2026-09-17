@@ -1,30 +1,31 @@
 """
-Orchestration complète du traitement d'un lot ("base_name"), en 3 phases :
-  1. Traduction (DeepSeek) des 10 langues doublées, écrite dans des .txt
-     persistants — résumable : si le .txt existe déjà, on ne retraduit pas.
-  2. Publication groupée des 12 (original + 11 langues), avec 1 seconde
-     d'écart entre chaque envoi — résumable via published_videos. Les
-     vidéos arrivent déjà compressées dans INCOMING_DIR (aucune compression
-     n'est faite par le VPS pour l'instant, voir video_processing.py).
-  3. Quand les 12 sont publiées : édition des messages pour ajouter les
-     liens croisés natifs Telegram, puis newsletter aux abonnés.
+Full orchestration of processing one batch ("base_name"), in 3 phases:
+  1. Translation (DeepSeek) of the 10 dubbed languages, written to
+     persistent .txt files — resumable: if the .txt already exists, it
+     isn't retranslated.
+  2. Grouped publication of the 12 (original + 11 languages), with a
+     1-second gap between each send — resumable via published_videos. The
+     videos arrive already compressed in INCOMING_DIR (no compression is
+     done by the VPS for now, see video_processing.py).
+  3. Once all 12 are published: edit the messages to add the native
+     Telegram cross-links, then send the newsletter to subscribers.
 
-Auto-réparation : si le .txt source (fr) a disparu du disque (lot interrompu
-avant la fin), il est reconstruit automatiquement à partir de ce qui est déjà
-publié en base (published_videos.title / caption_base de "fr", ou "original"
-à défaut) — aucune intervention manuelle nécessaire.
+Self-healing: if the source .txt (fr) has disappeared from disk (batch
+interrupted before the end), it is automatically rebuilt from what's
+already published in the DB (published_videos.title / caption_base of
+"fr", or "original" as a fallback) — no manual intervention needed.
 
-Repli "fichier trop volumineux" : si une vidéo dépasse config.MAX_UPLOAD_SIZE_BYTES
-(limite de l'API Telegram standard, 50 Mo), on NE TENTE PAS de l'envoyer (pas
-de round-trip réseau inutile, et attendre ne changerait rien à sa taille) : un
-message texte (titre + description) est publié immédiatement à la place, dont le message_id est
-enregistré en base comme si c'était celui de la vidéo — le pipeline (liens
-croisés, newsletter) n'a pas besoin de savoir qu'il s'agit d'un repli, seul le
-message_id compte pour lui. Le fichier source est ensuite supprimé du VPS
-comme dans le cas normal (le lot ne doit pas rester bloqué) : c'est à
-l'opérateur humain de repérer ces publications "texte seul" (is_video=0 en
-base) et d'éditer le message pour y attacher la vidéo, en dehors du pipeline
-automatique. Voir _publish_video.
+"File too large" fallback: if a video exceeds config.MAX_UPLOAD_SIZE_BYTES
+(the standard Telegram API limit, 50 MB), sending is NOT attempted (no
+pointless network round-trip, and waiting wouldn't change its size anyway):
+a text message (title + description) is published immediately instead,
+whose message_id is recorded in the DB as if it were the video's — the
+pipeline (cross-links, newsletter) doesn't need to know it's a fallback,
+only the message_id matters to it. The source file is then deleted from the
+VPS as in the normal case (the batch must not stay stuck): it's up to a
+human operator to spot these "text only" publications (is_video=0 in the
+DB) and edit the message to attach the video, outside the automatic
+pipeline. See _publish_video.
 """
 import asyncio
 import html
@@ -51,16 +52,16 @@ async def _with_retries(coro_fn, *, label: str):
             return await coro_fn()
         except (TimedOut, NetworkError) as exc:
             if attempt == MAX_ATTEMPTS:
-                logger.error("%s : échec définitif après %s tentatives (%s)", label, MAX_ATTEMPTS, exc)
+                logger.error("%s: final failure after %s attempts (%s)", label, MAX_ATTEMPTS, exc)
                 raise
             delay = RETRY_DELAYS_SECONDS[attempt - 1]
-            logger.warning("%s : tentative %s/%s échouée (%s), nouvel essai dans %ss...",
+            logger.warning("%s: attempt %s/%s failed (%s), retrying in %ss...",
                             label, attempt, MAX_ATTEMPTS, exc, delay)
             await asyncio.sleep(delay)
 
 
 def build_caption_base(title: str, description: str) -> str:
-    """Légende SANS les liens croisés : titre en gras + description (HTML)."""
+    """Caption WITHOUT the cross-links: bold title + description (HTML)."""
     safe_title = html.escape(title)
     safe_description = html.escape(description) if description else ""
     if safe_description:
@@ -69,7 +70,7 @@ def build_caption_base(title: str, description: str) -> str:
 
 
 def _description_from_caption(caption_base: str, title: str) -> str:
-    """Inverse de build_caption_base() : retire le <b>titre</b> et dé-échappe le HTML."""
+    """Inverse of build_caption_base(): strips the <b>title</b> and un-escapes the HTML."""
     prefix = f"<b>{html.escape(title)}</b>"
     remainder = caption_base[len(prefix):] if caption_base.startswith(prefix) else caption_base
     remainder = remainder.lstrip("\n")
@@ -77,10 +78,10 @@ def _description_from_caption(caption_base: str, title: str) -> str:
 
 
 def _ensure_source_txt(base_name: str, batch_dir) -> bool:
-    """S'assure que <base_name>.txt existe. S'il a disparu (lot interrompu
-    par une ancienne version du pipeline qui le supprimait trop tôt), le
-    reconstruit à partir de published_videos ("fr", sinon "original").
-    Retourne False si impossible (rien en base non plus)."""
+    """Ensures <base_name>.txt exists. If it has disappeared (batch
+    interrupted by an older version of the pipeline that deleted it too
+    early), rebuilds it from published_videos ("fr", or "original"
+    otherwise). Returns False if that's impossible (nothing in the DB either)."""
     txt_path = batch_dir / f"{base_name}.txt"
     if txt_path.exists():
         return True
@@ -92,13 +93,13 @@ def _ensure_source_txt(base_name: str, batch_dir) -> bool:
 
     description = _description_from_caption(source.caption_base, source.title)
     txt_path.write_text(f"TITRE: {source.title}\nDESCRIPTION: {description}\n", encoding="utf-8")
-    logger.warning("[%s] .txt source manquant : reconstruit automatiquement depuis la base.", base_name)
+    logger.warning("[%s] Missing source .txt: automatically rebuilt from the database.", base_name)
     return True
 
 
 def _unlink_video(batch_dir, stem: str):
-    """Supprime la vidéo <stem><extension> si elle existe encore (quelle que soit
-    l'extension parmi config.VIDEO_EXTENSIONS)."""
+    """Deletes the video <stem><extension> if it still exists (whatever its
+    extension among config.VIDEO_EXTENSIONS)."""
     video = config.find_video(batch_dir, stem)
     if video is not None:
         video.unlink()
@@ -109,18 +110,18 @@ def _stem_for(base_name: str, key: str) -> str:
 
 
 async def _publish_video(bot: Bot, base_name: str, lang_key: str, video_path, title: str, caption_base: str) -> bool:
-    """Publie la vidéo (déjà compressée en amont, envoyée telle quelle).
-    Retourne True si une vraie vidéo a été envoyée, False si le repli texte a
-    été utilisé.
+    """Publishes the video (already compressed upstream, sent as-is).
+    Returns True if an actual video was sent, False if the text fallback
+    was used.
 
-    Si le fichier dépasse config.MAX_UPLOAD_SIZE_BYTES, aucune tentative
-    d'envoi n'est faite (inutile de charger un fichier qui sera de toute
-    façon rejeté) : un message texte (titre + description) est publié
-    immédiatement à la place. Son message_id est enregistré en base à la
-    place de celui d'une vidéo, avec is_video=False — c'est à l'opérateur
-    d'éditer ce message ensuite pour y attacher la vidéo.
-    Si Telegram rejette malgré tout l'envoi pour la même raison (cas limite
-    où la taille estimée était proche de la limite), même repli.
+    If the file exceeds config.MAX_UPLOAD_SIZE_BYTES, sending isn't
+    attempted at all (no point uploading a file that will be rejected
+    anyway): a text message (title + description) is published
+    immediately instead. Its message_id is recorded in the DB in place of
+    a video's, with is_video=False — it's up to the operator to edit that
+    message afterwards to attach the video.
+    If Telegram rejects the send anyway for the same reason (edge case
+    where the estimated size was close to the limit), the same fallback applies.
     """
     chat_id = config.chat_id_for(lang_key)
     size = video_path.stat().st_size
@@ -129,7 +130,7 @@ async def _publish_video(bot: Bot, base_name: str, lang_key: str, video_path, ti
 
     if too_large:
         logger.warning(
-            "[%s] '%s' fait %.1f Mo (> %.0f Mo) : envoi vidéo non tenté, repli texte immédiat.",
+            "[%s] '%s' is %.1f MB (> %.0f MB): video send not attempted, immediate text fallback.",
             base_name, lang_key, size / (1024 * 1024), config.MAX_UPLOAD_SIZE_BYTES / (1024 * 1024),
         )
     else:
@@ -149,7 +150,7 @@ async def _publish_video(bot: Bot, base_name: str, lang_key: str, video_path, ti
         except Exception as exc:
             if "too large" not in str(exc).lower() and "too big" not in str(exc).lower():
                 raise
-            logger.warning("[%s] '%s' rejeté par Telegram comme trop volumineux, repli texte immédiat.",
+            logger.warning("[%s] '%s' rejected by Telegram as too large, immediate text fallback.",
                             base_name, lang_key)
 
     if not is_video:
@@ -157,7 +158,7 @@ async def _publish_video(bot: Bot, base_name: str, lang_key: str, video_path, ti
             return await bot.send_message(chat_id=chat_id, text=caption_base, parse_mode="HTML")
 
         message = await _with_retries(
-            _do_send_fallback, label=f"[{lang_key}] publication (repli texte) {base_name}"
+            _do_send_fallback, label=f"[{lang_key}] publication (text fallback) {base_name}"
         )
 
     state_db.upsert_published(
@@ -181,12 +182,12 @@ def _cleanup_after_publish(batch_dir, base_name: str, lang_key: str):
 
 
 async def process_batch(bot: Bot, base_name: str, batch_dir):
-    """Traite un lot complet déposé dans batch_dir (voir incoming_watcher.py)."""
+    """Processes one complete batch dropped in batch_dir (see incoming_watcher.py)."""
     original_txt = batch_dir / f"{base_name}.txt"
 
     if not _ensure_source_txt(base_name, batch_dir):
         logger.error(
-            "[%s] .txt source manquant et rien en base pour le reconstruire — lot bloqué, intervention nécessaire.",
+            "[%s] Missing source .txt and nothing in the DB to rebuild it — batch stuck, manual intervention needed.",
             base_name,
         )
         return
@@ -198,7 +199,7 @@ async def process_batch(bot: Bot, base_name: str, batch_dir):
         "fr": (title_fr, caption_fr),
     }
 
-    # ---- Phase 1 : traduction (résumable) -------------------------------
+    # ---- Phase 1: translation (resumable) --------------------------------
     for lang in config.LANGUAGES:
         if lang == "fr" or state_db.get_published(base_name, lang):
             continue
@@ -207,7 +208,7 @@ async def process_batch(bot: Bot, base_name: str, batch_dir):
         if lang_txt.exists():
             title, description = translator.parse_txt(lang_txt.read_text(encoding="utf-8"))
         else:
-            logger.info("[%s] Traduction DeepSeek -> %s...", base_name, lang)
+            logger.info("[%s] DeepSeek translation -> %s...", base_name, lang)
             title, description = await asyncio.to_thread(
                 translator.translate_txt, title_fr, description_fr, lang
             )
@@ -215,37 +216,37 @@ async def process_batch(bot: Bot, base_name: str, batch_dir):
 
         content[lang] = (title, build_caption_base(title, description))
 
-    # "original" utilise le texte ANGLAIS (pas français) : c'est la version
-    # destinée à être retravaillée par d'autres monteurs.
+    # "original" uses the ENGLISH text (not French): it's the version
+    # meant to be reworked by other editors.
     if not state_db.get_published(base_name, "original"):
         if "en" in content:
             content["original"] = content["en"]
         else:
             en_published = state_db.get_published(base_name, "en")
             if en_published is None:
-                logger.error("[%s] Texte anglais introuvable pour la légende de 'original'.", base_name)
+                logger.error("[%s] English text not found for the 'original' caption.", base_name)
                 return
             content["original"] = (en_published.title, en_published.caption_base)
 
-    # ---- Phase 2 : publication groupée, 1s d'écart -----------------------
-    # Les 12 fichiers sont déjà compressés (déposés tels quels dans
-    # batch_dir) : aucune compression n'est faite ici.
+    # ---- Phase 2: grouped publication, 1s gap -----------------------------
+    # The 12 files are already compressed (dropped as-is in batch_dir): no
+    # compression happens here.
     for key in config.ALL_KEYS:
         if state_db.get_published(base_name, key):
             continue
 
         video_path = config.find_video(batch_dir, _stem_for(base_name, key))
         if video_path is None:
-            logger.error("[%s] Vidéo source manquante pour '%s', lot incomplet.", base_name, key)
+            logger.error("[%s] Missing source video for '%s', batch incomplete.", base_name, key)
             return
 
         title, caption = content[key]
-        logger.info("[%s] Publication %s...", base_name, key)
+        logger.info("[%s] Publishing %s...", base_name, key)
         await _publish_video(bot, base_name, key, video_path, title, caption)
         _cleanup_after_publish(batch_dir, base_name, key)
         await asyncio.sleep(PUBLISH_GAP_SECONDS)
 
-    # ---- Phase 3 : liens croisés + newsletter, une fois les 12 publiées --
+    # ---- Phase 3: cross-links + newsletter, once all 12 are published ----
     published_map = state_db.get_all_for_base(base_name)
     if len(published_map) == len(config.ALL_KEYS):
         await apply_cross_links(bot, base_name, published_map)
@@ -254,14 +255,14 @@ async def process_batch(bot: Bot, base_name: str, batch_dir):
             original_txt.unlink()
     else:
         missing = set(config.ALL_KEYS) - set(published_map.keys())
-        logger.warning("[%s] Lot incomplet en base après traitement, manque : %s", base_name, missing)
+        logger.warning("[%s] Batch incomplete in the DB after processing, missing: %s", base_name, missing)
 
 
 async def apply_cross_links(bot: Bot, base_name: str, published_map: dict = None):
-    """Édite chaque message publié pour y ajouter la liste des autres langues,
-    avec un lien hypertexte natif Telegram caché derrière le nom de la langue.
-    "original" n'est jamais listé parmi les autres langues (le NB ci-dessous
-    pointe déjà vers lui, pas la peine de le lister deux fois)."""
+    """Edits each published message to add the list of other languages,
+    with a native Telegram hyperlink hidden behind the language name.
+    "original" is never listed among the other languages (the NB below
+    already points to it, no need to list it twice)."""
     if published_map is None:
         published_map = state_db.get_all_for_base(base_name)
 
@@ -277,8 +278,8 @@ async def apply_cross_links(bot: Bot, base_name: str, published_map: dict = None
             display = html.escape(config.DISPLAY_NAMES[other_key])
             lines.append(f'<a href="{link}">{display}</a>')
 
-        # NB pointant vers la version modifiable (sans voix) : jamais sur le
-        # canal "original" lui-même, puisqu'il EST cette version.
+        # NB pointing to the editable (voice-free) version: never on the
+        # "original" channel itself, since it IS that version.
         if lang_key != "original":
             original_pv = published_map.get("original")
             if original_pv is not None:
@@ -301,9 +302,9 @@ async def apply_cross_links(bot: Bot, base_name: str, published_map: dict = None
                     parse_mode="HTML",
                 )
         else:
-            # Repli "fichier trop volumineux" : c'est un message TEXTE, pas
-            # une vidéo — edit_message_caption ne s'applique qu'aux médias,
-            # il faut edit_message_text pour un message texte.
+            # "File too large" fallback: this is a TEXT message, not a
+            # video — edit_message_caption only applies to media, a text
+            # message needs edit_message_text.
             async def _do_edit(chat_id=chat_id, message_id=pv.message_id, text=full_text):
                 await bot.edit_message_text(
                     chat_id=chat_id,
@@ -313,21 +314,22 @@ async def apply_cross_links(bot: Bot, base_name: str, published_map: dict = None
                 )
 
         try:
-            await _with_retries(_do_edit, label=f"[{lang_key}] liens croisés {base_name}")
+            await _with_retries(_do_edit, label=f"[{lang_key}] cross-links {base_name}")
             state_db.mark_cross_links_applied(base_name, lang_key)
         except Exception:
-            logger.exception("[%s] Échec de l'édition des liens croisés pour %s", base_name, lang_key)
+            logger.exception("[%s] Failed to edit cross-links for %s", base_name, lang_key)
 
 
 async def notify_subscribers(bot: Bot, base_name: str, published_map: dict):
-    """Envoie la newsletter à chaque abonné, dans SA langue d'interface : titre +
-    description dans cette langue (toujours présente, car la langue d'UI ne
-    peut être que l'une des config.LANGUAGES, donc déjà publiée à ce stade ;
-    repli défensif sur l'anglais sinon), la liste des liens vers les autres
-    langues (noms traduits dans la langue d'interface du destinataire, cf.
-    i18n.LANGUAGE_NAMES, "original" exclu — déjà couvert par le NB), puis le
-    NB pointant vers la version modifiable — utile si l'abonné veut traduire
-    vers une langue locale ou non prise en charge nativement par le bot."""
+    """Sends the newsletter to each subscriber, in THEIR interface language:
+    title + description in that language (always present, since the UI
+    language can only be one of config.LANGUAGES, so already published at
+    this stage; defensive fallback to English otherwise), the list of links
+    to the other languages (names translated into the recipient's interface
+    language, see i18n.LANGUAGE_NAMES, "original" excluded — already
+    covered by the NB), then the NB pointing to the editable version —
+    useful if the subscriber wants to translate into a local language or
+    one not natively supported by the bot."""
     subscribers = state_db.get_subscribed_users()
     if not subscribers:
         return
@@ -367,4 +369,4 @@ async def notify_subscribers(bot: Bot, base_name: str, published_map: dict):
 
             await _with_retries(_do_send, label=f"newsletter -> {user_id}")
         except Exception:
-            logger.exception("[%s] Échec de l'envoi de la newsletter à %s", base_name, user_id)
+            logger.exception("[%s] Failed to send the newsletter to %s", base_name, user_id)
