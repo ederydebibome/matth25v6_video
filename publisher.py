@@ -349,7 +349,7 @@ async def notify_subscribers(bot: Bot, base_name: str, published_map: dict):
             i18n.CROSS_LINK_INTRO.get(ui_language, i18n.CROSS_LINK_INTRO["en"]),
         ]
         for other_key, other_pv in published_map.items():
-            if other_key in (pv.lang_key, "original"):
+            if other_key == "original":
                 continue
             link = config.channel_link(other_key, other_pv.message_id)
             display = html.escape(i18n.language_name(other_key, ui_language))
